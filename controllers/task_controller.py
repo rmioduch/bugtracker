@@ -2,7 +2,7 @@
 Enhanced Task controller - business logic for task operations with bug tracking features
 Extends original TaskController with enhanced functionality for Money Mentor AI
 """
-
+import os
 from typing import List, Optional, Dict
 from datetime import datetime, timedelta
 
@@ -235,6 +235,84 @@ class TaskController:
         """Bulk assign multiple tasks to user"""
         for task_id in task_ids:
             self.assign_task(task_id, assignee_id, assigned_by)
+
+    def delete_attachment(self, attachment_id: int) -> bool:
+        """Delete attachment and its file"""
+        try:
+            # Pobierz informacje o załączniku
+            attachment = self.db_manager.get_attachment_by_id(attachment_id)
+            if not attachment:
+                print(f"⚠️ Attachment {attachment_id} not found")
+                return False
+
+            # Usuń z bazy danych (zwraca ścieżkę pliku)
+            file_path = self.db_manager.delete_attachment(attachment_id)
+
+            # Usuń fizyczny plik
+            if file_path and os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                    print(f"🗑️ Physical file deleted: {file_path}")
+                except Exception as e:
+                    print(f"⚠️ Could not delete physical file: {e}")
+
+            print(f"✅ Attachment deleted: {attachment.original_filename}")
+            return True
+
+        except Exception as e:
+            print(f"❌ Error deleting attachment: {e}")
+            return False
+
+    def get_attachment_stats(self, task_id: int) -> Dict:
+        """Get attachment statistics for a task"""
+        attachments = self.get_task_attachments(task_id)
+
+        total_size = sum(att.file_size or 0 for att in attachments)
+
+        stats = {
+            'count': len(attachments),
+            'total_size': total_size,
+            'total_size_mb': total_size / (1024 * 1024) if total_size > 0 else 0,
+            'types': {}
+        }
+
+        # Count by type
+        for att in attachments:
+            if att.content_type:
+                main_type = att.content_type.split('/')[0]
+                stats['types'][main_type] = stats['types'].get(main_type, 0) + 1
+
+        return stats
+
+    def validate_attachment(self, file_path: str, max_size_mb: int = 50) -> tuple[bool, str]:
+        """Validate attachment file"""
+        try:
+            if not os.path.exists(file_path):
+                return False, "File does not exist"
+
+            # Check file size
+            file_size = os.path.getsize(file_path)
+            max_size_bytes = max_size_mb * 1024 * 1024
+
+            if file_size > max_size_bytes:
+                return False, f"File too large. Maximum size: {max_size_mb}MB"
+
+            # Check file extension (basic security)
+            filename = os.path.basename(file_path)
+            dangerous_extensions = ['.exe', '.bat', '.cmd', '.scr', '.vbs', '.js']
+
+            ext = os.path.splitext(filename)[1].lower()
+            if ext in dangerous_extensions:
+                return False, f"File type '{ext}' is not allowed for security reasons"
+
+            return True, "Valid"
+
+        except Exception as e:
+            return False, f"Validation error: {str(e)}"
+
+    def get_attachment_by_id(self, attachment_id: int) -> Optional[Attachment]:
+        """Get attachment by ID (delegate to database manager)"""
+        return self.db_manager.get_attachment_by_id(attachment_id)
 
     # ==================== ANALYTICS AND REPORTING ====================
 

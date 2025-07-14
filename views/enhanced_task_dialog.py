@@ -1,6 +1,6 @@
 """
 Enhanced Task Dialog - Create/Edit tasks with bug tracking features
-NAPRAWIONA WERSJA - Pełne wykorzystanie szerokości w zakładce Details
+KOMPLETNA WERSJA z funkcjonalnością załączników - POPRAWIONA
 """
 
 import tkinter as tk
@@ -10,6 +10,9 @@ import os
 import shutil
 from datetime import datetime
 import platform
+import mimetypes
+import uuid
+import subprocess
 
 from controllers.task_controller import TaskController
 from controllers.project_controller import ProjectController
@@ -20,9 +23,35 @@ from models.entities import (
     RESOLUTION_CHOICES, MODULE_CHOICES
 )
 
+# Attachment configuration
+ATTACHMENT_CONFIG = {
+    'max_file_size_mb': 50,          # Maximum file size per attachment
+    'max_total_size_mb': 200,        # Maximum total size per task
+    'max_files_per_task': 20,        # Maximum number of files per task
+    'allowed_extensions': [
+        # Images
+        '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.tiff', '.svg',
+        # Documents
+        '.pdf', '.doc', '.docx', '.txt', '.rtf', '.odt', '.pages',
+        # Spreadsheets
+        '.xlsx', '.xls', '.csv', '.ods', '.numbers',
+        # Archives
+        '.zip', '.rar', '.7z', '.tar', '.gz',
+        # Logs
+        '.log', '.out', '.txt',
+        # Videos (small ones)
+        '.mp4', '.avi', '.mov', '.mkv', '.webm',
+        # Audio
+        '.mp3', '.wav', '.ogg', '.m4a'
+    ],
+    'blocked_extensions': [
+        '.exe', '.bat', '.cmd', '.scr', '.vbs', '.js', '.jar', '.com', '.pif'
+    ]
+}
+
 
 class EnhancedTaskDialog:
-    """Enhanced dialog for creating and editing tasks/bugs - NAPRAWIONA WERSJA z pełną szerokością"""
+    """Enhanced dialog for creating and editing tasks/bugs - KOMPLETNA WERSJA z załącznikami"""
 
     def __init__(self, parent, task_controller: TaskController,
                  project_controller: ProjectController, task: Optional[Task] = None,
@@ -557,7 +586,7 @@ class EnhancedTaskDialog:
         self.stack_trace_text = self._create_enhanced_text_area_fullwidth(content_inner, height=8)
 
     def _create_enhanced_attachments_tab(self):
-        """Create enhanced attachments tab"""
+        """Create enhanced attachments tab with FULL FUNCTIONALITY"""
         attachments_frame = tk.Frame(self.notebook, bg=self.colors['bg_secondary'])
         self.notebook.add(attachments_frame, text="📎 Attachments")
 
@@ -568,7 +597,7 @@ class EnhancedTaskDialog:
         content_inner = tk.Frame(content_card, bg=self.colors['bg_card'])
         content_inner.pack(fill=tk.BOTH, expand=True, padx=25, pady=20)
 
-        # Header with upload button
+        # Header with upload button and info
         header_frame = tk.Frame(content_inner, bg=self.colors['bg_card'])
         header_frame.pack(fill=tk.X, pady=(0, 20))
 
@@ -582,6 +611,16 @@ class EnhancedTaskDialog:
         upload_btn = self._create_styled_button(header_frame, "📁 Add File", self._add_attachment,
                                                 bg_color=self.colors['accent_teal'], fg_color='white')
         upload_btn.pack(side=tk.RIGHT)
+
+        # File limits info
+        limits_info = tk.Label(content_inner,
+                               text=f"Max file size: {ATTACHMENT_CONFIG['max_file_size_mb']}MB • "
+                                    f"Max total: {ATTACHMENT_CONFIG['max_total_size_mb']}MB • "
+                                    f"Max files: {ATTACHMENT_CONFIG['max_files_per_task']}",
+                               bg=self.colors['bg_card'],
+                               fg=self.colors['text_muted'],
+                               font=('Segoe UI', 9))
+        limits_info.pack(pady=(0, 15))
 
         # Attachments list area
         self.attachments_list_frame = tk.Frame(content_inner, bg=self.colors['bg_panel'])
@@ -816,8 +855,150 @@ class EnhancedTaskDialog:
 
         return card
 
+    # ==================== KOMPLETNA FUNKCJONALNOŚĆ ZAŁĄCZNIKÓW ====================
+
+    def _add_attachment(self):
+        """Add file attachment with full implementation - KOMPLETNA METODA"""
+        if not self.task:
+            messagebox.showwarning("Warning", "Please save the task first before adding attachments.")
+            return
+
+        filetypes = [
+            ("Image files", "*.png *.jpg *.jpeg *.gif *.bmp *.webp *.tiff"),
+            ("Document files", "*.pdf *.doc *.docx *.txt *.rtf *.odt"),
+            ("Spreadsheet files", "*.xlsx *.xls *.csv *.ods"),
+            ("Archive files", "*.zip *.rar *.7z *.tar.gz"),
+            ("Log files", "*.log *.txt *.out"),
+            ("Video files", "*.mp4 *.avi *.mov *.mkv *.webm"),
+            ("All files", "*.*")
+        ]
+
+        filenames = filedialog.askopenfilenames(
+            title="Select file(s) to attach",
+            filetypes=filetypes
+        )
+
+        if not filenames:
+            return
+
+        try:
+            # Sprawdź obecną liczbę załączników
+            current_count = len(self.attachments)
+            if current_count + len(filenames) > ATTACHMENT_CONFIG['max_files_per_task']:
+                messagebox.showerror("Too Many Files",
+                                     f"Too many attachments. Maximum {ATTACHMENT_CONFIG['max_files_per_task']} files per task.\n"
+                                     f"Current: {current_count}, Trying to add: {len(filenames)}")
+                return
+
+            # Sprawdź rozmiar plików
+            total_size = 0
+            max_file_size = ATTACHMENT_CONFIG['max_file_size_mb'] * 1024 * 1024
+            max_total_size = ATTACHMENT_CONFIG['max_total_size_mb'] * 1024 * 1024
+
+            for filename in filenames:
+                if not os.path.exists(filename):
+                    messagebox.showerror("File Not Found", f"File '{filename}' not found.")
+                    return
+
+                file_size = os.path.getsize(filename)
+                if file_size > max_file_size:
+                    messagebox.showerror("File Too Large",
+                                         f"File '{os.path.basename(filename)}' is too large.\n"
+                                         f"Maximum file size: {ATTACHMENT_CONFIG['max_file_size_mb']}MB")
+                    return
+                total_size += file_size
+
+                # Sprawdź rozszerzenie
+                ext = os.path.splitext(filename)[1].lower()
+                if ext in ATTACHMENT_CONFIG['blocked_extensions']:
+                    messagebox.showerror("File Type Blocked",
+                                         f"File type '{ext}' is not allowed for security reasons.")
+                    return
+
+            # Sprawdź obecny rozmiar załączników
+            current_total_size = sum(att.file_size or 0 for att in self.attachments)
+            if current_total_size + total_size > max_total_size:
+                messagebox.showerror("Total Size Too Large",
+                                     f"Total file size would exceed limit.\n"
+                                     f"Current: {self._format_file_size(current_total_size)}\n"
+                                     f"Adding: {self._format_file_size(total_size)}\n"
+                                     f"Maximum: {ATTACHMENT_CONFIG['max_total_size_mb']}MB")
+                return
+
+            # Sprawdź czy folder attachments istnieje
+            from utils.helpers import get_app_data_dir
+            attachments_dir = os.path.join(get_app_data_dir(), 'attachments')
+            os.makedirs(attachments_dir, exist_ok=True)
+
+            # Załącz każdy plik
+            success_count = 0
+            for filename in filenames:
+                if self._attach_single_file(filename, attachments_dir):
+                    success_count += 1
+
+            # Odśwież listę załączników
+            self.attachments = self.db_manager.get_task_attachments(self.task.id)
+            self._refresh_enhanced_attachments_list()
+
+            # Pokaż potwierdzenie
+            if success_count == len(filenames):
+                if len(filenames) == 1:
+                    messagebox.showinfo("Success", "File attached successfully!")
+                else:
+                    messagebox.showinfo("Success", f"{success_count} files attached successfully!")
+            elif success_count > 0:
+                messagebox.showwarning("Partial Success",
+                                       f"{success_count} of {len(filenames)} files attached successfully.")
+            else:
+                messagebox.showerror("Failed", "No files were attached.")
+
+        except Exception as e:
+            print(f"❌ Error adding attachments: {e}")
+            import traceback
+            traceback.print_exc()
+            messagebox.showerror("Error", f"Failed to attach files: {str(e)}")
+
+    def _attach_single_file(self, source_path: str, attachments_dir: str) -> bool:
+        """Attach a single file to the task"""
+        try:
+            # Wygeneruj unikalną nazwę pliku
+            original_filename = os.path.basename(source_path)
+            file_extension = os.path.splitext(original_filename)[1]
+            unique_filename = f"{uuid.uuid4().hex}{file_extension}"
+
+            # Ścieżka docelowa
+            target_path = os.path.join(attachments_dir, unique_filename)
+
+            # Skopiuj plik
+            shutil.copy2(source_path, target_path)
+
+            # Pobierz informacje o pliku
+            file_size = os.path.getsize(target_path)
+            content_type = mimetypes.guess_type(source_path)[0] or 'application/octet-stream'
+
+            # Dodaj do bazy danych (załóżmy że current_user_id = 1)
+            current_user_id = 1  # W prawdziwej aplikacji z sesji użytkownika
+
+            attachment_id = self.task_controller.add_attachment(
+                task_id=self.task.id,
+                filename=unique_filename,
+                original_filename=original_filename,
+                file_path=target_path,
+                file_size=file_size,
+                content_type=content_type,
+                uploaded_by=current_user_id
+            )
+
+            print(f"✅ File attached: {original_filename} -> {unique_filename}")
+            return True
+
+        except Exception as e:
+            print(f"❌ Error attaching file {source_path}: {e}")
+            messagebox.showerror("Error", f"Failed to attach {os.path.basename(source_path)}: {str(e)}")
+            return False
+
     def _refresh_enhanced_attachments_list(self):
-        """Refresh attachments list with enhanced styling"""
+        """Refresh attachments list with enhanced styling and functionality"""
         # Clear existing items
         for widget in self.attachments_list_frame.winfo_children():
             widget.destroy()
@@ -834,28 +1015,49 @@ class EnhancedTaskDialog:
             empty_label.pack(expand=True)
             return
 
-        for attachment in self.attachments:
-            self._create_enhanced_attachment_item(attachment)
+        # Show attachment stats
+        total_size = sum(att.file_size or 0 for att in self.attachments)
+        stats_label = tk.Label(self.attachments_list_frame,
+                               text=f"📊 {len(self.attachments)} files • {self._format_file_size(total_size)} total",
+                               bg=self.colors['bg_panel'], fg=self.colors['text_secondary'],
+                               font=('Segoe UI', 9))
+        stats_label.pack(pady=(5, 10))
 
-    def _create_enhanced_attachment_item(self, attachment):
-        """Create enhanced attachment list item"""
-        item_frame = tk.Frame(self.attachments_list_frame, bg=self.colors['bg_card'],
-                              relief='flat', bd=1)
+        # Create scrollable frame for many attachments
+        if len(self.attachments) > 5:
+            canvas = tk.Canvas(self.attachments_list_frame, bg=self.colors['bg_panel'], highlightthickness=0)
+            scrollbar = ttk.Scrollbar(self.attachments_list_frame, orient="vertical", command=canvas.yview)
+            scrollable_frame = tk.Frame(canvas, bg=self.colors['bg_panel'])
+
+            scrollable_frame.bind(
+                "<Configure>",
+                lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+            )
+
+            canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+            canvas.configure(yscrollcommand=scrollbar.set)
+
+            canvas.pack(side="left", fill="both", expand=True)
+            scrollbar.pack(side="right", fill="y")
+
+            target_frame = scrollable_frame
+        else:
+            target_frame = self.attachments_list_frame
+
+        for attachment in self.attachments:
+            self._create_enhanced_attachment_item_with_actions(attachment, target_frame)
+
+    def _create_enhanced_attachment_item_with_actions(self, attachment, parent):
+        """Create enhanced attachment list item with action buttons"""
+        item_frame = tk.Frame(parent, bg=self.colors['bg_card'], relief='flat', bd=1)
         item_frame.pack(fill=tk.X, padx=5, pady=3)
 
-        # File icon and info
+        # File icon and info (left side)
         info_frame = tk.Frame(item_frame, bg=self.colors['bg_card'])
         info_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=15, pady=10)
 
         # File type icon
-        icon = "📎"
-        if attachment.content_type:
-            if "image" in attachment.content_type:
-                icon = "🖼️"
-            elif "pdf" in attachment.content_type:
-                icon = "📄"
-            elif "text" in attachment.content_type:
-                icon = "📝"
+        icon = self._get_file_icon(attachment.content_type, attachment.original_filename)
 
         icon_label = tk.Label(info_frame, text=icon,
                               bg=self.colors['bg_card'], fg=self.colors['accent_teal'],
@@ -866,22 +1068,264 @@ class EnhancedTaskDialog:
         details_frame = tk.Frame(info_frame, bg=self.colors['bg_card'])
         details_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
+        # Filename (clickable)
         filename_label = tk.Label(details_frame,
                                   text=attachment.original_filename,
-                                  bg=self.colors['bg_card'], fg=self.colors['text_primary'],
-                                  font=('Segoe UI', 10, 'bold'))
+                                  bg=self.colors['bg_card'], fg=self.colors['accent_gold'],
+                                  font=('Segoe UI', 10, 'bold'),
+                                  cursor='hand2')
         filename_label.pack(anchor='w')
+        filename_label.bind("<Button-1>", lambda e: self._open_attachment(attachment))
 
         # Upload info
         upload_info = f"Uploaded by {attachment.uploaded_by_name or 'Unknown'}"
         if attachment.uploaded_at:
             upload_info += f" on {attachment.uploaded_at.strftime('%Y-%m-%d %H:%M')}"
-        upload_info += f" • {attachment.get_file_size_mb()} MB"
+        upload_info += f" • {self._format_file_size(attachment.file_size)}"
 
         info_label = tk.Label(details_frame, text=upload_info,
                               bg=self.colors['bg_card'], fg=self.colors['text_muted'],
                               font=('Segoe UI', 9))
         info_label.pack(anchor='w')
+
+        # Action buttons (right side)
+        actions_frame = tk.Frame(item_frame, bg=self.colors['bg_card'])
+        actions_frame.pack(side=tk.RIGHT, padx=15, pady=10)
+
+        # Open button
+        open_btn = self._create_styled_button(actions_frame, "📂 Open",
+                                              lambda: self._open_attachment(attachment),
+                                              bg_color=self.colors['accent_purple'], fg_color='white')
+        open_btn.pack(side=tk.RIGHT, padx=(5, 0))
+
+        # Download button - POPRAWIONY: zmieniono initialname na initialfile
+        download_btn = self._create_styled_button(actions_frame, "💾 Save",
+                                                  lambda: self._save_attachment(attachment),
+                                                  bg_color=self.colors['accent_teal'], fg_color='white')
+        download_btn.pack(side=tk.RIGHT, padx=(5, 0))
+
+        # Preview button (for images)
+        if self._is_image_file(attachment):
+            preview_btn = self._create_styled_button(actions_frame, "👁️",
+                                                     lambda: self._show_attachment_preview(attachment),
+                                                     bg_color=self.colors['accent_blue'], fg_color='white')
+            preview_btn.pack(side=tk.RIGHT, padx=(5, 0))
+
+        # Delete button
+        delete_btn = self._create_styled_button(actions_frame, "🗑️",
+                                                lambda: self._delete_attachment(attachment),
+                                                bg_color=self.colors['critical'], fg_color='white')
+        delete_btn.pack(side=tk.RIGHT, padx=(5, 0))
+
+    def _get_file_icon(self, content_type: str, filename: str) -> str:
+        """Get appropriate icon for file type"""
+        if content_type:
+            if "image" in content_type:
+                return "🖼️"
+            elif "pdf" in content_type:
+                return "📄"
+            elif "text" in content_type:
+                return "📝"
+            elif "video" in content_type:
+                return "🎥"
+            elif "audio" in content_type:
+                return "🎵"
+            elif "zip" in content_type or "archive" in content_type:
+                return "📦"
+            elif "excel" in content_type or "spreadsheet" in content_type:
+                return "📊"
+            elif "word" in content_type or "document" in content_type:
+                return "📄"
+
+        # Fallback based on extension
+        ext = os.path.splitext(filename)[1].lower()
+        if ext in ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp']:
+            return "🖼️"
+        elif ext in ['.pdf']:
+            return "📄"
+        elif ext in ['.txt', '.log']:
+            return "📝"
+        elif ext in ['.zip', '.rar', '.7z']:
+            return "📦"
+        elif ext in ['.xlsx', '.xls', '.csv']:
+            return "📊"
+        elif ext in ['.mp4', '.avi', '.mov']:
+            return "🎥"
+        else:
+            return "📎"
+
+    def _format_file_size(self, size_bytes: int) -> str:
+        """Format file size in human readable format"""
+        if not size_bytes:
+            return "0 B"
+
+        if size_bytes < 1024:
+            return f"{size_bytes} B"
+        elif size_bytes < 1024 * 1024:
+            return f"{size_bytes / 1024:.1f} KB"
+        elif size_bytes < 1024 * 1024 * 1024:
+            return f"{size_bytes / (1024 * 1024):.1f} MB"
+        else:
+            return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
+
+    def _is_image_file(self, attachment) -> bool:
+        """Check if attachment is an image file"""
+        if attachment.content_type:
+            return attachment.content_type.startswith('image/')
+
+        ext = os.path.splitext(attachment.original_filename)[1].lower()
+        return ext in ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.tiff']
+
+    def _open_attachment(self, attachment):
+        """Open attachment with default system application"""
+        try:
+            if os.path.exists(attachment.file_path):
+                if platform.system() == 'Windows':
+                    os.startfile(attachment.file_path)
+                elif platform.system() == 'Darwin':  # macOS
+                    subprocess.call(['open', attachment.file_path])
+                else:  # Linux
+                    subprocess.call(['xdg-open', attachment.file_path])
+
+                print(f"📂 Opened attachment: {attachment.original_filename}")
+            else:
+                messagebox.showerror("File Not Found",
+                                     f"File '{attachment.original_filename}' was not found.\n"
+                                     "It may have been moved or deleted.")
+        except Exception as e:
+            print(f"❌ Error opening attachment: {e}")
+            messagebox.showerror("Error", f"Could not open file: {str(e)}")
+
+    def _save_attachment(self, attachment):
+        """Save attachment to user-selected location - POPRAWIONA WERSJA"""
+        try:
+            if not os.path.exists(attachment.file_path):
+                messagebox.showerror("File Not Found",
+                                     f"File '{attachment.original_filename}' was not found.")
+                return
+
+            # Ask user where to save - POPRAWIONE: zmieniono initialname na initialfile
+            save_path = filedialog.asksaveasfilename(
+                title="Save attachment as...",
+                initialfile=attachment.original_filename,  # POPRAWKA: było initialname
+                defaultextension=os.path.splitext(attachment.original_filename)[1]
+            )
+
+            if save_path:
+                shutil.copy2(attachment.file_path, save_path)
+                messagebox.showinfo("Success", f"File saved to:\n{save_path}")
+                print(f"💾 Attachment saved: {attachment.original_filename} -> {save_path}")
+
+        except Exception as e:
+            print(f"❌ Error saving attachment: {e}")
+            messagebox.showerror("Error", f"Could not save file: {str(e)}")
+
+    def _delete_attachment(self, attachment):
+        """Delete attachment after confirmation"""
+        try:
+            # Confirm deletion
+            result = messagebox.askyesno("Confirm Deletion",
+                                         f"Are you sure you want to delete '{attachment.original_filename}'?\n\n"
+                                         "This action cannot be undone.")
+
+            if not result:
+                return
+
+            # Delete from database and file system
+            success = self.task_controller.delete_attachment(attachment.id)
+
+            if success:
+                # Refresh list
+                self.attachments = self.db_manager.get_task_attachments(self.task.id)
+                self._refresh_enhanced_attachments_list()
+
+                messagebox.showinfo("Success", "Attachment deleted successfully.")
+                print(f"✅ Attachment deleted: {attachment.original_filename}")
+            else:
+                messagebox.showerror("Error", "Could not delete attachment.")
+
+        except Exception as e:
+            print(f"❌ Error deleting attachment: {e}")
+            messagebox.showerror("Error", f"Could not delete attachment: {str(e)}")
+
+    def _show_attachment_preview(self, attachment):
+        """Show attachment preview in popup window"""
+        if not self._is_image_file(attachment):
+            messagebox.showinfo("Preview", "Preview is only available for image files.")
+            return
+
+        if not os.path.exists(attachment.file_path):
+            messagebox.showerror("File Not Found", "Cannot preview: file not found.")
+            return
+
+        try:
+            # Create preview window
+            preview_window = tk.Toplevel(self.dialog)
+            preview_window.title(f"Preview: {attachment.original_filename}")
+            preview_window.configure(bg=self.colors['bg_primary'])
+            preview_window.transient(self.dialog)
+            preview_window.grab_set()
+
+            # Center and size window
+            preview_window.geometry("800x600")
+
+            # Try to load image with PIL if available
+            try:
+                from PIL import Image, ImageTk
+
+                # Load and resize image
+                with Image.open(attachment.file_path) as img:
+                    # Calculate size to fit in window
+                    img_width, img_height = img.size
+                    max_width, max_height = 750, 550
+
+                    if img_width > max_width or img_height > max_height:
+                        ratio = min(max_width/img_width, max_height/img_height)
+                        new_width = int(img_width * ratio)
+                        new_height = int(img_height * ratio)
+                        img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+
+                    # Convert to PhotoImage
+                    photo = ImageTk.PhotoImage(img)
+
+                    # Create label with image
+                    label = tk.Label(preview_window, image=photo, bg=self.colors['bg_primary'])
+                    label.image = photo  # Keep reference
+                    label.pack(expand=True)
+
+                    # Add close button
+                    close_btn = self._create_styled_button(preview_window, "Close",
+                                                           preview_window.destroy,
+                                                           bg_color=self.colors['accent_gold'],
+                                                           fg_color='black')
+                    close_btn.pack(pady=10)
+
+            except ImportError:
+                # PIL not available - show basic info
+                info_text = f"Image Preview\n\nFilename: {attachment.original_filename}\n"
+                info_text += f"Size: {self._format_file_size(attachment.file_size)}\n"
+                info_text += f"Type: {attachment.content_type}\n\n"
+                info_text += "Install PIL (pillow) for image preview:\n"
+                info_text += "pip install pillow"
+
+                label = tk.Label(preview_window, text=info_text,
+                                 bg=self.colors['bg_primary'],
+                                 fg=self.colors['text_primary'],
+                                 font=('Segoe UI', 12),
+                                 justify=tk.CENTER)
+                label.pack(expand=True, padx=20, pady=20)
+
+                close_btn = self._create_styled_button(preview_window, "Close",
+                                                       preview_window.destroy,
+                                                       bg_color=self.colors['accent_gold'],
+                                                       fg_color='black')
+                close_btn.pack(pady=10)
+
+        except Exception as e:
+            print(f"❌ Error showing preview: {e}")
+            messagebox.showerror("Preview Error", f"Could not show preview: {str(e)}")
+
+    # ==================== RESZTA METOD BEZ ZMIAN ====================
 
     def _load_enhanced_comments(self):
         """Load task comments with enhanced styling"""
@@ -1192,6 +1636,7 @@ class EnhancedTaskDialog:
                 print(f"✅ Task updated: {task_data.title}")
             else:
                 task_id = self.task_controller.create_task(task_data)
+                task_data.id = task_id  # Set the ID for newly created task
                 print(f"✅ Task created: {task_data.title}")
 
             # Handle labels
@@ -1211,6 +1656,8 @@ class EnhancedTaskDialog:
 
         except Exception as e:
             print(f"❌ Error saving task: {e}")
+            import traceback
+            traceback.print_exc()
             messagebox.showerror("Error", f"Failed to save task: {str(e)}")
 
     def _get_user_id_from_display(self, display_text: str) -> Optional[int]:
@@ -1225,24 +1672,6 @@ class EnhancedTaskDialog:
             return user.id if user else None
 
         return None
-
-    def _add_attachment(self):
-        """Add file attachment"""
-        filetypes = [
-            ("Image files", "*.png *.jpg *.jpeg *.gif *.bmp"),
-            ("Document files", "*.pdf *.doc *.docx *.txt"),
-            ("Log files", "*.log *.txt"),
-            ("All files", "*.*")
-        ]
-
-        filename = filedialog.askopenfilename(
-            title="Select file to attach",
-            filetypes=filetypes
-        )
-
-        if filename:
-            messagebox.showinfo("Attachment", f"File selected: {os.path.basename(filename)}\n\n"
-                                              "File attachment functionality will be implemented in production.")
 
     def _add_comment(self):
         """Add new comment"""

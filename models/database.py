@@ -1163,3 +1163,79 @@ class DatabaseManager:
             attachments.append(attachment)
 
         return attachments
+
+    def delete_attachment(self, attachment_id: int):
+        """Delete attachment from database - POPRAWIONA WERSJA"""
+        print(f"🗑️ Deleting attachment ID: {attachment_id}")
+
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        # Najpierw pobierz ścieżkę pliku dla ewentualnego usunięcia
+        cursor.execute("SELECT file_path FROM attachments WHERE id = ?", (attachment_id,))
+        result = cursor.fetchone()
+
+        if result:
+            file_path = result[0]
+
+            # Usuń z bazy danych
+            cursor.execute("DELETE FROM attachments WHERE id = ?", (attachment_id,))
+            conn.commit()
+            print(f"  ✅ Attachment deleted from database")
+
+            return file_path
+        else:
+            print(f"  ⚠️ Attachment {attachment_id} not found")
+            return None
+
+    def get_attachment_by_id(self, attachment_id: int) -> Optional[Attachment]:
+        """Get attachment by ID"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT a.*, u.full_name as uploaded_by_name
+            FROM attachments a
+            LEFT JOIN users u ON a.uploaded_by = u.id
+            WHERE a.id = ?
+        """, (attachment_id,))
+
+        row = cursor.fetchone()
+        if row:
+            return Attachment(
+                id=row['id'],
+                task_id=row['task_id'],
+                filename=row['filename'],
+                original_filename=row['original_filename'],
+                file_path=row['file_path'],
+                file_size=row['file_size'],
+                content_type=row['content_type'],
+                uploaded_by=row['uploaded_by'],
+                uploaded_by_name=row['uploaded_by_name'],
+                uploaded_at=datetime.fromisoformat(row['uploaded_at']) if row['uploaded_at'] else None
+            )
+        return None
+
+    def get_attachment_stats_for_task(self, task_id: int) -> Dict:
+        """Get attachment statistics for a task"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as count,
+                SUM(file_size) as total_size,
+                AVG(file_size) as avg_size,
+                MAX(file_size) as max_size
+            FROM attachments 
+            WHERE task_id = ?
+        """, (task_id,))
+
+        result = cursor.fetchone()
+
+        return {
+            'count': result[0] or 0,
+            'total_size': result[1] or 0,
+            'average_size': result[2] or 0,
+            'max_size': result[3] or 0
+        }

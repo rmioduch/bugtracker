@@ -1,7 +1,7 @@
 """
 Enhanced data classes for TaskMaster BugTracker - Money Mentor AI
 """
-
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, List
@@ -197,9 +197,78 @@ class Attachment:
     uploaded_by_name: Optional[str] = None
     uploaded_at: Optional[datetime] = None
 
-    def get_file_size_mb(self) -> float:
-        """Return file size in MB"""
-        return round(self.file_size / (1024 * 1024), 2)
+    def get_file_size_mb(self) -> str:
+        """Get file size in MB format"""
+        if self.file_size:
+            mb = self.file_size / (1024 * 1024)
+            return f"{mb:.2f}"
+        return "0.00"
+
+    def get_file_size_human(self) -> str:
+        """Get file size in human readable format"""
+        if not self.file_size:
+            return "0 B"
+
+        size = self.file_size
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if size < 1024.0:
+                if unit == 'B':
+                    return f"{int(size)} {unit}"
+                else:
+                    return f"{size:.1f} {unit}"
+            size /= 1024.0
+        return f"{size:.1f} TB"
+
+    def is_image(self) -> bool:
+        """Check if attachment is an image"""
+        if self.content_type:
+            return self.content_type.startswith('image/')
+
+        # Fallback to extension
+        ext = os.path.splitext(self.original_filename)[1].lower()
+        return ext in ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.tiff']
+
+    def is_document(self) -> bool:
+        """Check if attachment is a document"""
+        if self.content_type:
+            return (self.content_type.startswith('text/') or
+                    'pdf' in self.content_type or
+                    'document' in self.content_type or
+                    'word' in self.content_type)
+
+        ext = os.path.splitext(self.original_filename)[1].lower()
+        return ext in ['.pdf', '.doc', '.docx', '.txt', '.rtf', '.odt']
+
+    def is_video(self) -> bool:
+        """Check if attachment is a video"""
+        if self.content_type:
+            return self.content_type.startswith('video/')
+
+        ext = os.path.splitext(self.original_filename)[1].lower()
+        return ext in ['.mp4', '.avi', '.mov', '.mkv', '.webm']
+
+    def is_archive(self) -> bool:
+        """Check if attachment is an archive"""
+        if self.content_type:
+            return ('zip' in self.content_type or
+                    'archive' in self.content_type or
+                    'compressed' in self.content_type)
+
+        ext = os.path.splitext(self.original_filename)[1].lower()
+        return ext in ['.zip', '.rar', '.7z', '.tar', '.gz']
+
+    def get_file_extension(self) -> str:
+        """Get file extension"""
+        return os.path.splitext(self.original_filename)[1].lower()
+
+    def get_display_name(self, max_length: int = 30) -> str:
+        """Get display name truncated if too long"""
+        if len(self.original_filename) <= max_length:
+            return self.original_filename
+
+        name, ext = os.path.splitext(self.original_filename)
+        truncated_name = name[:max_length - len(ext) - 3] + "..."
+        return truncated_name + ext
 
 
 @dataclass
