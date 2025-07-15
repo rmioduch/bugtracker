@@ -27,6 +27,16 @@ jobs:
           pip install pyinstaller==6.3.0
           pip install pillow==10.1.0
 
+      - name: 🔍 Debug Environment
+        run: |
+          echo "Python version: $(python --version)"
+          echo "PyInstaller version: $(pyinstaller --version)"
+          echo "Current directory: $(pwd)"
+          echo "Files in current directory:"
+          ls -la
+          echo "Python path: $(which python)"
+          echo "Main.py exists: $(test -f main.py && echo 'YES' || echo 'NO')"
+
       - name: 🎨 Prepare Icon (if exists)
         run: |
           if [ -f "assets/icon.png" ] && [ ! -f "assets/icon.icns" ]; then
@@ -40,18 +50,27 @@ jobs:
           # Create assets directory if it doesn't exist
           mkdir -p assets
           
-          # Build command
-          BUILD_CMD="pyinstaller --onefile --windowed --name='TaskMaster BugTracker'"
-          BUILD_CMD="$BUILD_CMD --osx-bundle-identifier='com.taskmaster.enhanced'"
-          BUILD_CMD="$BUILD_CMD --target-arch=universal2"
+          # Simple build first (without advanced options that might cause issues)
+          echo "🔨 Building TaskMaster for macOS..."
           
-          # Add icon if available
           if [ -f "assets/icon.icns" ]; then
-            BUILD_CMD="$BUILD_CMD --icon=assets/icon.icns"
+            echo "✅ Building with icon..."
+            pyinstaller \
+              --onefile \
+              --windowed \
+              --name "TaskMaster BugTracker" \
+              --icon assets/icon.icns \
+              main.py
+          else
+            echo "⚠️ Building without icon..."
+            pyinstaller \
+              --onefile \
+              --windowed \
+              --name "TaskMaster BugTracker" \
+              main.py
           fi
           
-          # Execute build
-          $BUILD_CMD main.py
+          echo "✅ Build command completed"
 
       - name: 📊 Verify Build
         run: |
