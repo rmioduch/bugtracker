@@ -1,0 +1,145 @@
+name: Build macOS Application
+
+on:
+  push:
+    branches: [ main, develop ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:  # Allows manual trigger
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+      - name: 🛒 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: 📦 Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller==6.3.0
+          pip install pillow==10.1.0
+
+      - name: 🎨 Prepare Icon (if exists)
+        run: |
+          if [ -f "assets/icon.png" ] && [ ! -f "assets/icon.icns" ]; then
+            echo "Converting PNG to ICNS..."
+            mkdir -p assets
+            sips -s format icns assets/icon.png --out assets/icon.icns
+          fi
+
+      - name: 🔨 Build macOS App
+        run: |
+          # Create assets directory if it doesn't exist
+          mkdir -p assets
+          
+          # Build command
+          BUILD_CMD="pyinstaller --onefile --windowed --name='TaskMaster BugTracker'"
+          BUILD_CMD="$BUILD_CMD --osx-bundle-identifier='com.taskmaster.enhanced'"
+          BUILD_CMD="$BUILD_CMD --target-arch=universal2"
+          
+          # Add icon if available
+          if [ -f "assets/icon.icns" ]; then
+            BUILD_CMD="$BUILD_CMD --icon=assets/icon.icns"
+          fi
+          
+          # Execute build
+          $BUILD_CMD main.py
+
+      - name: 📊 Verify Build
+        run: |
+          ls -la dist/
+          if [ -d "dist/TaskMaster BugTracker.app" ]; then
+            echo "✅ macOS app built successfully!"
+            du -sh "dist/TaskMaster BugTracker.app"
+            # Test if app can start (headless)
+            # "./dist/TaskMaster BugTracker.app/Contents/MacOS/TaskMaster BugTracker" --help || true
+          else
+            echo "❌ Build failed!"
+            exit 1
+          fi
+
+      - name: 💿 Create DMG
+        run: |
+          APP_NAME="TaskMaster BugTracker"
+          DMG_NAME="TaskMaster Enhanced v2.0.0"
+          
+          # Create DMG
+          hdiutil create -volname "$DMG_NAME" \
+            -srcfolder "dist/$APP_NAME.app" \
+            -ov -format UDZO \
+            "dist/$DMG_NAME.dmg"
+          
+          echo "✅ DMG created:"
+          ls -lh "dist/$DMG_NAME.dmg"
+
+      - name: 📤 Upload macOS App
+        uses: actions/upload-artifact@v4
+        with:
+          name: TaskMaster-macOS-App
+          path: dist/TaskMaster BugTracker.app
+          retention-days: 30
+
+      - name: 📤 Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: TaskMaster-macOS-DMG
+          path: dist/*.dmg
+          retention-days: 30
+
+      - name: 🎉 Build Summary
+        run: |
+          echo "## 🍎 macOS Build Completed! 🎉" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Generated Files:" >> $GITHUB_STEP_SUMMARY
+          echo "- **TaskMaster BugTracker.app** - Native macOS application" >> $GITHUB_STEP_SUMMARY
+          echo "- **TaskMaster Enhanced v2.0.0.dmg** - Installer package" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📱 Installation:" >> $GITHUB_STEP_SUMMARY
+          echo "1. Download artifacts from this build" >> $GITHUB_STEP_SUMMARY
+          echo "2. Double-click DMG to mount" >> $GITHUB_STEP_SUMMARY
+          echo "3. Drag app to Applications folder" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ⚠️ Security Note:" >> $GITHUB_STEP_SUMMARY
+          echo "App is unsigned - you may need to allow in System Preferences > Security" >> $GITHUB_STEP_SUMMARY
+
+  # Optional: Also build for other platforms in parallel
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: 🛒 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: 📦 Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller==6.3.0
+
+      - name: 🔨 Build Windows EXE
+        run: |
+          $BUILD_CMD = "pyinstaller --onefile --windowed --name='TaskMaster BugTracker'"
+          if (Test-Path "assets/icon.ico") {
+            $BUILD_CMD += " --icon=assets/icon.ico"
+          }
+          $BUILD_CMD += " main.py"
+          Invoke-Expression $BUILD_CMD
+
+      - name: 📤 Upload Windows EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: TaskMaster-Windows-EXE
+          path: dist/*.exe
+          retention-days: 30
