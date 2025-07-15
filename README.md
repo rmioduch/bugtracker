@@ -336,4 +336,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 **Made with ❤️ for efficient bug tracking and task management**
 
-For support, email: support@taskmaster.example.com
+For support, email: rmioduch@gmail.com
